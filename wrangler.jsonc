@@ -1,0 +1,9 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "neonify-spotify",
+  "main": "src/index.js",
+  "compatibility_date": "2026-11-12",
+  "vars": {
+    "SPOTIFY_CLIENT_ID": "PASTE_YOUR_SPOTIFY_CLIENT_ID_HERE"
+  }
+}
