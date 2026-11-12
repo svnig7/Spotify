@@ -148,20 +148,28 @@ function imageOf(x){return x&&x.images&&x.images[0]?x.images[0].url:""}
 function artists(x){return(x.artists||[]).map(a=>a.name).join(", ")}
 function duration(x){return fmt(x.duration_ms)}
 function cards(items,type){
- if(!items||!items.length)return'<div class="empty">Nothing to show here yet.</div>';
- return '<div class="grid">'+items.map(x=>{
-  const obj=x[type==="playlist"?"track":type==="album"?"":""]||x;
-  const name=x.name||obj.name||"Untitled",sub=type==="playlist"?(x.owner&&x.owner.display_name||"Spotify playlist"):type==="artist"?"Artist":type==="album"?artists(x):artists(obj);
+ const safeItems=(Array.isArray(items)?items:[]).filter(x=>x && typeof x==="object");
+ if(!safeItems.length)return'<div class="empty">Nothing to show here yet.</div>';
+ return '<div class="grid">'+safeItems.map(x=>{
+  const obj=(type==="playlist" && x.track && typeof x.track==="object")?x.track:x;
+  const name=x.name||obj.name||"Untitled";
+  const sub=type==="playlist"?(x.owner&&x.owner.display_name||"Spotify playlist"):type==="artist"?"Artist":type==="album"?artists(x):artists(obj);
   const img=imageOf(x)||imageOf(obj);
-  return '<article class="card" data-kind="'+type+'" data-id="'+escapeHtml(x.id||obj.id||"")+'"><img class="cover" src="'+escapeHtml(img)+'" alt=""><strong>'+escapeHtml(name)+'</strong><small>'+escapeHtml(sub)+'</small></article>';
+  const id=x.id||obj.id||"";
+  return '<article class="card" data-kind="'+type+'" data-id="'+escapeHtml(id)+'"><img class="cover" src="'+escapeHtml(img)+'" alt=""><strong>'+escapeHtml(name)+'</strong><small>'+escapeHtml(sub)+'</small></article>';
  }).join("")+'</div>';
 }
 function renderTracks(items){
- if(!items||!items.length)return'<div class="empty">No tracks found.</div>';
- return '<div class="tracklist">'+items.map((x,i)=>{
-  const t=x.track||x; if(!t||!t.id)return"";
-  return '<div class="track" data-track="'+escapeHtml(t.uri||("spotify:track:"+t.id))+'"><img src="'+escapeHtml(imageOf(t.album))+'" alt=""><div><strong>'+escapeHtml(t.name)+'</strong><small>'+escapeHtml(artists(t))+'</small></div><span class="duration">'+duration(t)+'</span></div>';
- }).join("")+'</div>';
+ const safeItems=(Array.isArray(items)?items:[]).filter(Boolean);
+ if(!safeItems.length)return'<div class="empty">No tracks found.</div>';
+ const rows=safeItems.map(x=>{
+  // Spotify playlist/recently-played entries wrap the track in {track}; unavailable tracks may be null.
+  const t=(x && x.track!==undefined)?x.track:x;
+  if(!t || typeof t!=="object" || !t.id || t.is_local)return"";
+  const uri=t.uri||("spotify:track:"+t.id);
+  return '<div class="track" data-track="'+escapeHtml(uri)+'"><img src="'+escapeHtml(imageOf(t.album))+'" alt=""><div><strong>'+escapeHtml(t.name||"Unavailable track")+'</strong><small>'+escapeHtml(artists(t))+'</small></div><span class="duration">'+duration(t)+'</span></div>';
+ }).filter(Boolean).join("");
+ return rows?'<div class="tracklist">'+rows+'</div>':'<div class="empty">No playable tracks found. Some entries may have been removed or are unavailable.</div>';
 }
 function section(title,html){return'<div class="section-head"><h2>'+title+'</h2></div>'+html}
 function hero(){return '<section class="hero"><div class="eyebrow">Your personal soundscape</div><h1>Feel the frequency.</h1><p>Find your next favourite track, revisit your collection and let the music take over.</p><button class="primary" id="mixBtn">Explore music</button></section>'}
@@ -201,7 +209,17 @@ async function startPlayer(){
  player=new Spotify.Player({name:"NEONIFY Web Player",getOAuthToken:cb=>token().then(cb).catch(e=>status(e.message)),volume:.7});
  player.addListener("ready",({device_id})=>{deviceId=device_id;status("Player ready. Select a track to play.");api("/me/player").catch(()=>{});});
  player.addListener("not_ready",()=>{deviceId="";status("Spotify player disconnected.");});
- player.addListener("player_state_changed",state=>{if(!state)return;currentTrack=state.track_window.current_track;updateNow(currentTrack);$("playBtn").textContent=state.paused?"▶":"Ⅱ";$("seek").max=state.duration||1;$("seek").value=state.position||0;$("elapsed").textContent=fmt(state.position);$("total").textContent=fmt(state.duration);});
+ player.addListener("player_state_changed",state=>{
+  if(!state)return;
+  const trackWindow=state.track_window||{};
+  currentTrack=trackWindow.current_track||null;
+  if(currentTrack) updateNow(currentTrack);
+  $("playBtn").textContent=state.paused?"▶":"Ⅱ";
+  $("seek").max=state.duration||1;
+  $("seek").value=state.position||0;
+  $("elapsed").textContent=fmt(state.position);
+  $("total").textContent=fmt(state.duration);
+});
  ["initialization_error","authentication_error","account_error","playback_error"].forEach(ev=>player.addListener(ev,({message})=>status(message)));
  await player.connect();
 }
