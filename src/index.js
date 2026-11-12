@@ -63,13 +63,13 @@ button,input{font:inherit}button{cursor:pointer;color:inherit}.app{min-height:10
   <div class="volume"><span>◖</span><input id="volume" type="range" min="0" max="100" value="70"></div>
 </div>
 <div class="login" id="login">
- <div class="login-box"><h1>NEONIFY</h1><p>Sign in with Spotify to search, explore your library and stream music with your Premium account.</p><button class="primary" id="loginBtn">Continue with Spotify</button><p style="font-size:11px">Playback is provided by Spotify. A Premium account is required for Web Playback SDK.</p></div>
+ <div class="login-box"><h1>NEONIFY</h1><p>Sign in with Spotify to search, explore your library and stream music with your Premium account.</p><button class="primary" id="loginBtn" type="button">Continue with Spotify</button><p id="loginStatus" role="status" style="color:#ff75bd;font-size:13px;min-height:22px"></p><p style="font-size:11px">Playback is provided by Spotify. A Premium account is required for Web Playback SDK.</p></div>
 </div>
 <script defer src="https://sdk.scdn.co/spotify-player.js"></script>
 <script>
 (function(){
 "use strict";
-const CLIENT_ID="__CLIENT_ID__";
+const CLIENT_ID=__NEONIFY_CLIENT_ID__;
 const REDIRECT_URI=location.origin+"/";
 const SCOPES=["streaming","user-read-email","user-read-private","user-read-playback-state","user-modify-playback-state","user-read-currently-playing","user-library-read","user-library-modify","playlist-read-private","playlist-read-collaborative","user-read-recently-played","user-top-read"].join(" ");
 const $=id=>document.getElementById(id);
@@ -77,18 +77,46 @@ let accessToken=localStorage.getItem("neon_access_token")||"";
 let refreshToken=localStorage.getItem("neon_refresh_token")||"";
 let expiresAt=Number(localStorage.getItem("neon_expires_at")||0);
 let player=null,deviceId="",currentTrack=null,progressTimer=null,repeatMode="off",shuffle=false;
-function status(s){$("status").textContent=s||""}
+function status(s){
+ const message=s||"";
+ const target=$("status");
+ if(target) target.textContent=message;
+ const loginMessage=$("loginStatus");
+ if(loginMessage && !$("login").classList.contains("hidden")) loginMessage.textContent=message;
+}
 function escapeHtml(s){return String(s||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function fmt(ms){if(!Number.isFinite(ms)||ms<0)return"0:00";let t=Math.floor(ms/1000);return Math.floor(t/60)+":"+String(t%60).padStart(2,"0")}
 function randomString(n){const a=new Uint8Array(n);crypto.getRandomValues(a);return Array.from(a,b=>("0"+b.toString(16)).slice(-2)).join("")}
 async function challenge(v){const d=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(v));return btoa(String.fromCharCode.apply(null,new Uint8Array(d))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"")}
 async function login(){
- if(!CLIENT_ID||CLIENT_ID==="__CLIENT_ID__"){status("Set SPOTIFY_CLIENT_ID in wrangler.jsonc first.");return}
- const verifier=randomString(64),state=randomString(16),ch=await challenge(verifier);
- sessionStorage.setItem("neon_verifier",verifier);sessionStorage.setItem("neon_state",state);
- const u=new URL("https://accounts.spotify.com/authorize");
- u.search=new URLSearchParams({client_id:CLIENT_ID,response_type:"code",redirect_uri:REDIRECT_URI,scope:SCOPES,state:state,code_challenge_method:"S256",code_challenge:ch}).toString();
- location.href=u.toString();
+ try {
+  if(!CLIENT_ID || CLIENT_ID.includes("PASTE_") || CLIENT_ID === "__NEONIFY_CLIENT_ID__") {
+   throw new Error("Spotify Client ID is missing. Set SPOTIFY_CLIENT_ID in Cloudflare and redeploy.");
+  }
+  if(!window.crypto || !window.crypto.subtle) {
+   throw new Error("Secure browser cryptography is unavailable. Open this HTTPS site in Chrome.");
+  }
+  const verifier=randomString(64);
+  const state=randomString(16);
+  const codeChallenge=await challenge(verifier);
+  sessionStorage.setItem("neon_verifier",verifier);
+  sessionStorage.setItem("neon_state",state);
+  const authorizeUrl=new URL("https://accounts.spotify.com/authorize");
+  authorizeUrl.search=new URLSearchParams({
+   client_id:CLIENT_ID,
+   response_type:"code",
+   redirect_uri:REDIRECT_URI,
+   scope:SCOPES,
+   state,
+   code_challenge_method:"S256",
+   code_challenge:codeChallenge
+  }).toString();
+  status("Opening Spotify sign-in…");
+  window.location.assign(authorizeUrl.toString());
+ } catch(error) {
+  console.error("Neonify login error:",error);
+  status("Login error: "+(error && error.message ? error.message : String(error)));
+ }
 }
 async function handleCallback(){
  const q=new URLSearchParams(location.search),code=q.get("code"),state=q.get("state");
@@ -194,7 +222,12 @@ async function profile(){
  try{const me=await api("/me");$("userName").textContent=me.display_name||me.id;$("userType").textContent="Spotify account connected";$("connectBtn").textContent="Connected";$("login").classList.add("hidden");await startPlayer();await home()}catch(e){status(e.message)}
 }
 function disconnect(){["neon_access_token","neon_refresh_token","neon_expires_at"].forEach(k=>localStorage.removeItem(k));accessToken="";refreshToken="";expiresAt=0;if(player){player.disconnect();player=null}deviceId="";$("login").classList.remove("hidden");$("userName").textContent="Not connected";$("userType").textContent="Connect your Spotify account";$("connectBtn").textContent="Connect Spotify";$("content").innerHTML=hero()+'<div class="empty">Connect your Spotify account to load your music.</div>'}
-$("loginBtn").onclick=login;$("connectBtn").onclick=login;$("heroConnect").onclick=login;$("logoutBtn").onclick=disconnect;
+window.neonLogin=login;
+$("loginBtn").addEventListener("click",function(event){event.preventDefault();login();});
+$("connectBtn").addEventListener("click",login);
+const heroConnectButton=$("heroConnect");
+if(heroConnectButton) heroConnectButton.addEventListener("click",login);
+$("logoutBtn").addEventListener("click",disconnect);
 $("searchInput").addEventListener("keydown",e=>{if(e.key==="Enter")search(e.target.value.trim())});
 $("searchInput").addEventListener("input",e=>{if(!e.target.value.trim()&&accessToken)home()});
 document.querySelectorAll("[data-view]").forEach(b=>b.onclick=()=>{document.querySelectorAll("[data-view]").forEach(x=>x.classList.remove("active"));b.classList.add("active");if(b.dataset.view==="home")home();if(b.dataset.view==="library")library();if(b.dataset.view==="search"){$("searchInput").focus();$("content").innerHTML='<div class="empty">Search for a song, artist, album or playlist above.</div>'}});
@@ -232,7 +265,7 @@ export default {
     if (!env.SPOTIFY_CLIENT_ID) {
       return new Response("Missing SPOTIFY_CLIENT_ID. Add it as a Worker variable in Cloudflare or wrangler.jsonc.", { status: 500 });
     }
-    const page = HTML.replaceAll("__CLIENT_ID__", String(env.SPOTIFY_CLIENT_ID));
+    const page = HTML.replace("__NEONIFY_CLIENT_ID__", JSON.stringify(String(env.SPOTIFY_CLIENT_ID)));
     return new Response(page, {
       headers: {
         "content-type": "text/html; charset=utf-8",
