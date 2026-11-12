@@ -1,4 +1,4 @@
-# NEONIFY — Spotify-style Cloudflare Worker
+# NEONIFY — Spotify-style Cloudflare Worker a
 
 A single-Worker Spotify web app with a neon interface and Spotify's official Web Playback SDK.
 
