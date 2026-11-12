@@ -65,7 +65,7 @@ button,input{font:inherit}button{cursor:pointer;color:inherit}.app{min-height:10
 <div class="login" id="login">
  <div class="login-box"><h1>NEONIFY</h1><p>Sign in with Spotify to search, explore your library and stream music with your Premium account.</p><button class="primary" id="loginBtn">Continue with Spotify</button><p style="font-size:11px">Playback is provided by Spotify. A Premium account is required for Web Playback SDK.</p></div>
 </div>
-<script src="https://sdk.scdn.co/spotify-player.js"></script>
+<script defer src="https://sdk.scdn.co/spotify-player.js"></script>
 <script>
 (function(){
 "use strict";
